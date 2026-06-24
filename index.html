@@ -80,6 +80,8 @@
   .op-tab{flex:1; padding:14px 10px; border:1.5px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s;}
   .op-tab.active.in{background:var(--success); color:#fff; border-color:var(--success);}
   .op-tab.active.out{background:var(--danger); color:#fff; border-color:var(--danger);}
+  .op-tab.active.insp{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .op-tab.active.uninsp{background:var(--warning); color:#fff; border-color:var(--warning);}
 
   .qty-display{text-align:center; font-family:var(--mono); font-size:38px; font-weight:700; color:var(--accent); padding:14px 0; background:var(--surface2); border:1.5px solid var(--border); border-radius:var(--radius-sm); margin-bottom:10px; letter-spacing:-.02em; line-height:1.1;}
   .qty-display.preset{background:#e7f3ec; border-color:#c3e3cf; color:var(--success);}
@@ -92,6 +94,8 @@
   .submit:disabled{background:var(--border2); cursor:not-allowed;}
   .submit.in{background:var(--success);} .submit.in:active{background:#15613a;}
   .submit.out{background:var(--danger);} .submit.out:active{background:#9a2c20;}
+  .submit.insp{background:var(--accent);} .submit.insp:active{background:var(--accent-dark);}
+  .submit.uninsp{background:var(--warning);} .submit.uninsp:active{background:#734910;}
 
   .preset-hint{display:inline-block; font-size:11px; font-weight:600; color:var(--success); background:#e7f3ec; border:1px solid #c3e3cf; padding:1px 8px; border-radius:6px; margin-left:8px; letter-spacing:0;}
 
@@ -253,15 +257,15 @@
     lastScannedId = text;
     lastScannedAt = now;
 
-    // 「商品名.数字」形式を解析
-    // 末尾のドットの右側が数字のときだけ数量として扱う（商品名にドットが含まれていても安全）
+    // 「商品名,数字」形式を解析
+    // 末尾のカンマの右側が数字のときだけ数量として扱う（商品名にカンマが含まれていても安全）
     var name = text;
     var presetQty = null;
-    var lastDot = text.lastIndexOf('.');
-    if(lastDot > 0){
-      var tail = text.substring(lastDot + 1);
+    var lastComma = text.lastIndexOf(',');
+    if(lastComma > 0){
+      var tail = text.substring(lastComma + 1);
       if(/^\d+$/.test(tail)){
-        name = text.substring(0, lastDot);
+        name = text.substring(0, lastComma);
         presetQty = parseInt(tail, 10);
       }
     }
@@ -324,6 +328,10 @@
           '<button class="op-tab in" id="tab-in">＋ 入庫</button>'+
           '<button class="op-tab out" id="tab-out">− 出庫</button>'+
         '</div>'+
+        '<div class="op-tabs">'+
+          '<button class="op-tab insp" id="tab-insp">✓ 検品完了</button>'+
+          '<button class="op-tab uninsp" id="tab-uninsp">↩ 未検品に戻す</button>'+
+        '</div>'+
         '<p class="op-label">数量' + hint + '</p>'+
         '<div class="qty-display' + (presetFromQR ? ' preset' : '') + '" id="qty-display">' + qtyStr + '</div>'+
         '<div class="keypad">'+
@@ -346,12 +354,29 @@
 
     document.getElementById('tab-in').onclick = function(){ selectOp('in'); };
     document.getElementById('tab-out').onclick = function(){ selectOp('out'); };
+    document.getElementById('tab-insp').onclick = function(){ selectOp('insp'); };
+    document.getElementById('tab-uninsp').onclick = function(){ selectOp('uninsp'); };
     var keys = d.querySelectorAll('.key');
     for(var i=0; i<keys.length; i++){
       (function(b){ b.onclick = function(){ handleKey(b.getAttribute('data-k')); }; })(keys[i]);
     }
     document.getElementById('submit').onclick = doSubmit;
     document.getElementById('next').onclick = backToScan;
+
+    // テンキー全体が見えるよう、ページ最下部まで自動でスクロール
+    // 描画が確定してから動かすため少し待つ
+    setTimeout(function(){
+      try{
+        var sb = document.getElementById('submit');
+        if(sb && sb.scrollIntoView){
+          sb.scrollIntoView({ behavior:'smooth', block:'end' });
+        } else {
+          window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
+        }
+      }catch(e){
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+    }, 250);
   }
 
   // ===== テンキー処理 =====
@@ -391,10 +416,19 @@
     operation = op;
     document.getElementById('tab-in').classList.toggle('active', op==='in');
     document.getElementById('tab-out').classList.toggle('active', op==='out');
+    document.getElementById('tab-insp').classList.toggle('active', op==='insp');
+    document.getElementById('tab-uninsp').classList.toggle('active', op==='uninsp');
     var btn = document.getElementById('submit');
     btn.disabled = false;
-    btn.className = 'submit ' + op;
-    btn.textContent = op==='in' ? '✓ 入庫を記録する' : '✓ 出庫を記録する';
+    var labels = {
+      'in':     { cls:'in',     tx:'✓ 入庫を記録する' },
+      'out':    { cls:'out',    tx:'✓ 出庫を記録する' },
+      'insp':   { cls:'insp',   tx:'✓ 検品完了を記録する' },
+      'uninsp': { cls:'uninsp', tx:'✓ 未検品に戻す' }
+    };
+    var m = labels[op] || labels['in'];
+    btn.className = 'submit ' + m.cls;
+    btn.textContent = m.tx;
   }
 
   function backToScan(){
@@ -411,9 +445,23 @@
     var qty = parseInt(qtyStr, 10) || 0;
     if(qty <= 0){ toast('数量を入力してください', 'err'); return; }
 
+    var it = currentItem;
+
+    // 操作ごとの上限チェック
     if(operation === 'out'){
-      if(qty > currentItem.qty){
-        toast('在庫が足りません（在庫 ' + currentItem.qty + '）', 'err');
+      if(qty > it.qty){
+        toast('在庫が足りません（在庫 ' + it.qty + '）', 'err');
+        return;
+      }
+    } else if(operation === 'insp'){
+      var canInsp = it.qty - it.inspectedQty;
+      if(qty > canInsp){
+        toast('未検品が足りません（未検品 ' + canInsp + '）', 'err');
+        return;
+      }
+    } else if(operation === 'uninsp'){
+      if(qty > it.inspectedQty){
+        toast('検品済みが足りません（検品済み ' + it.inspectedQty + '）', 'err');
         return;
       }
     }
@@ -424,30 +472,42 @@
     btn.textContent = '保存中…';
 
     // ローカルでデータ更新
-    var it = currentItem;
     if(operation === 'in'){
       it.qty += qty;
       addLog(it, 'in', qty);
-    } else {
+    } else if(operation === 'out'){
       it.qty -= qty;
       if(it.inspectedQty > it.qty) it.inspectedQty = it.qty;
       addLog(it, 'out', qty);
+    } else if(operation === 'insp'){
+      it.inspectedQty += qty;
+      addLog(it, 'insp', qty);
+    } else if(operation === 'uninsp'){
+      it.inspectedQty -= qty;
+      addLog(it, 'uninsp', qty);
     }
+
+    var opLabels = { 'in':'入庫', 'out':'出庫', 'insp':'検品完了', 'uninsp':'未検品戻し' };
+    var opName = opLabels[operation] || '';
+    var opForBtn = operation;
 
     // サーバーに保存
     pushToServer(function(ok){
       processing = false;
       if(ok){
-        toast((operation==='in'?'入庫':'出庫') + ' ' + qty + ' 件を記録しました', 'ok');
+        toast(opName + ' ' + qty + ' 件を記録しました', 'ok');
         setTimeout(backToScan, 800);
       } else {
         // 失敗したらロールバック
-        if(operation === 'in'){ it.qty -= qty; }
-        else { it.qty += qty; }
+        if(opForBtn === 'in'){ it.qty -= qty; }
+        else if(opForBtn === 'out'){ it.qty += qty; }
+        else if(opForBtn === 'insp'){ it.inspectedQty -= qty; }
+        else if(opForBtn === 'uninsp'){ it.inspectedQty += qty; }
         it.logs.shift();
         toast('保存できませんでした。もう一度お試しください', 'err');
         btn.disabled = false;
-        btn.textContent = operation==='in' ? '✓ 入庫を記録する' : '✓ 出庫を記録する';
+        var rb = { 'in':'✓ 入庫を記録する','out':'✓ 出庫を記録する','insp':'✓ 検品完了を記録する','uninsp':'✓ 未検品に戻す' };
+        btn.textContent = rb[opForBtn] || '✓ 記録する';
       }
     });
   }
