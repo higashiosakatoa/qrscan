@@ -137,7 +137,7 @@
 (function(){
   // ===== 設定 =====
   // ↓↓↓ GASのウェブアプリURLをここに貼り付けてください ↓↓↓
-  var GAS_URL = 'https://script.google.com/macros/s/AKfycbxO3SfcTHohyt-fZdh_AaffbiwJKayb-9spe8gH9sKcqpq3fCD_liIDYxIpdvidsJop/exec';
+  var GAS_URL = 'ここにGASのURLを貼り付け';
   // ↑↑↑ 例: https://script.google.com/macros/s/AKfy.../exec ↑↑↑
 
   var items = [];
@@ -491,12 +491,13 @@
     btn.textContent = '保存中…';
 
     // ローカルでデータ更新
+    var prevInspected = it.inspectedQty;   // 失敗時の復元用
     if(operation === 'in'){
       it.qty += qty;
       addLog(it, 'in', qty);
     } else if(operation === 'out'){
       it.qty -= qty;
-      if(it.inspectedQty > it.qty) it.inspectedQty = it.qty;
+      it.inspectedQty = Math.max(0, it.inspectedQty - qty);
       addLog(it, 'out', qty);
     } else if(operation === 'insp'){
       it.inspectedQty += qty;
@@ -519,7 +520,7 @@
       } else {
         // 失敗したらロールバック
         if(opForBtn === 'in'){ it.qty -= qty; }
-        else if(opForBtn === 'out'){ it.qty += qty; }
+        else if(opForBtn === 'out'){ it.qty += qty; it.inspectedQty = prevInspected; }
         else if(opForBtn === 'insp'){ it.inspectedQty -= qty; }
         else if(opForBtn === 'uninsp'){ it.inspectedQty += qty; }
         it.logs.shift();
