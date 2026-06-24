@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QRスキャン - 在庫処理</title>
+<script>
+  // QR読み取りライブラリを、複数のCDNから順番に読み込む（1つ落ちても他で起動）
+  (function(){
+    var cdns = [
+      'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/html5-qrcode.min.js',
+      'https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js'
+    ];
+    var i = 0;
+    function tryLoad(){
+      if(i >= cdns.length){
+        window.__qrLibFailed = true;
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = cdns[i];
+      s.onload = function(){ window.__qrLibReady = true; };
+      s.onerror = function(){ i++; tryLoad(); };
+      document.head.appendChild(s);
+    }
+    tryLoad();
+  })();
+</script>
+<style>
+  :root{
+    --bg:#0f172a; --surface:#ffffff; --surface2:#f4f7fb;
+    --border:#e2e7ef; --border2:#cdd5e1;
+    --text:#1b2335; --text2:#5b6678; --text3:#9aa3b3;
+    --accent:#1d4e89; --accent-dark:#163a66; --accent-soft:#e9f0f9;
+    --success:#1f7a43; --success-bg:#e7f3ec; --success-bd:#c3e3cf;
+    --warning:#946115; --warning-bg:#fcf1db; --warning-bd:#f0dcae;
+    --danger:#c0392b;
+    --radius:14px; --radius-sm:10px;
+    --font: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; background:var(--bg); color:#fff; font-family:var(--font); line-height:1.5; font-variant-numeric:tabular-nums;}
+  .header{padding:14px 18px; display:flex; align-items:center; gap:12px;}
+  .header .ttl{flex:1; font-size:15px; font-weight:600; letter-spacing:.01em;}
+  .header .status{font-size:11px; color:#9aa3b3;}
+  .header .status .dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:#9aa3b3; margin-right:5px; vertical-align:1px;}
+  .header .status.ok .dot{background:#34d399;}
+  .header .status.err .dot{background:#f87171;}
+  .header .status.saving .dot{background:#fbbf24;}
+
+  .scan-area{position:relative; width:100%; max-width:520px; margin:0 auto; aspect-ratio:1; background:#000; overflow:hidden;}
+  #reader{width:100%; height:100%;}
+  #reader video{object-fit:cover !important; width:100% !important; height:100% !important;}
+  .scan-frame{position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center;}
+  .scan-frame::before{content:""; width:70%; aspect-ratio:1; border:2px solid rgba(255,255,255,.7); border-radius:18px; box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
+  .scan-hint{position:absolute; left:0; right:0; bottom:14px; text-align:center; font-size:12px; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.6);}
+
+  .panel{max-width:520px; margin:0 auto; background:var(--surface); color:var(--text); padding:18px 18px 26px; border-radius:18px 18px 0 0; min-height:50vh;}
+  .empty{text-align:center; color:var(--text3); padding:40px 16px;}
+  .empty .ic{font-size:38px; margin-bottom:8px;}
+  .empty p{margin:4px 0; font-size:14px;}
+
+  .card{background:var(--surface);}
+  .card .eyebrow{font-size:11px; letter-spacing:.14em; color:var(--accent); font-weight:600; margin:0 0 4px;}
+  .card .name{font-family:var(--mono); font-size:22px; font-weight:700; margin:0 0 5px; letter-spacing:-.01em;}
+  .card .meta{font-size:12px; color:var(--text2); margin:0 0 14px;}
+  .card .meta .tag{display:inline-block; background:var(--accent-soft); color:var(--accent); padding:2px 9px; border-radius:6px; font-weight:600; font-size:11px; margin-right:6px;}
+
+  .stock-row{display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;}
+  .stock-box{flex:1; min-width:90px; background:linear-gradient(150deg,var(--accent),var(--accent-dark)); color:#fff; border-radius:var(--radius-sm); padding:10px 14px; text-align:center; box-shadow:0 3px 10px rgba(29,78,137,.18);}
+  .stock-box .n{font-size:24px; font-weight:700; letter-spacing:-.02em; line-height:1.1;}
+  .stock-box .l{font-size:10px; letter-spacing:.12em; opacity:.85; margin-top:1px;}
+  .stock-box.ok{background:var(--success-bg); color:var(--success); border:1px solid var(--success-bd); box-shadow:none;}
+  .stock-box.un{background:var(--warning-bg); color:var(--warning); border:1px solid var(--warning-bd); box-shadow:none;}
+
+  .op-label{font-size:11px; font-weight:600; letter-spacing:.1em; color:var(--text2); margin:14px 0 8px;}
+  .op-tabs{display:flex; gap:8px; margin-bottom:12px;}
+  .op-tab{flex:1; padding:14px 10px; border:1.5px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s;}
+  .op-tab.active.in{background:var(--success); color:#fff; border-color:var(--success);}
+  .op-tab.active.out{background:var(--danger); color:#fff; border-color:var(--danger);}
+
+  .qty-display{text-align:center; font-family:var(--mono); font-size:38px; font-weight:700; color:var(--accent); padding:14px 0; background:var(--surface2); border:1.5px solid var(--border); border-radius:var(--radius-sm); margin-bottom:10px; letter-spacing:-.02em; line-height:1.1;}
+  .qty-display.preset{background:#e7f3ec; border-color:#c3e3cf; color:var(--success);}
+  .keypad{display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:14px;}
+  .key{height:58px; border:1.5px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:24px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .1s, transform .08s;}
+  .key:active{background:var(--surface2); transform:scale(.96);}
+  .key.act{color:var(--text2); font-size:20px;}
+
+  .submit{width:100%; height:54px; border:none; background:var(--accent); color:#fff; border-radius:var(--radius-sm); font-size:16px; font-weight:600; cursor:pointer; font-family:inherit; letter-spacing:.03em; transition:background .15s;}
+  .submit:disabled{background:var(--border2); cursor:not-allowed;}
+  .submit.in{background:var(--success);} .submit.in:active{background:#15613a;}
+  .submit.out{background:var(--danger);} .submit.out:active{background:#9a2c20;}
+
+  .preset-hint{display:inline-block; font-size:11px; font-weight:600; color:var(--success); background:#e7f3ec; border:1px solid #c3e3cf; padding:1px 8px; border-radius:6px; margin-left:8px; letter-spacing:0;}
+
+  .next-btn{width:100%; margin-top:10px; height:44px; border:1px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:14px; font-weight:500; cursor:pointer; font-family:inherit;}
+
+  .toast{position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(40px); background:#1b2335; color:#fff; padding:12px 22px; border-radius:999px; font-size:14px; font-weight:500; box-shadow:0 10px 30px rgba(0,0,0,.3); opacity:0; transition:all .3s; pointer-events:none; z-index:99;}
+  .toast.show{transform:translateX(-50%) translateY(0); opacity:1;}
+  .toast.ok{background:var(--success);}
+  .toast.err{background:var(--danger);}
+
+  .err-box{background:#fdecea; color:var(--danger); border:1px solid #f5b8b1; border-radius:var(--radius-sm); padding:14px 16px; font-size:13px; margin-bottom:12px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="ttl">📱 QRスキャン</div>
+  <div class="status" id="status"><span class="dot"></span><span id="status-text">読み込み中…</span></div>
+</div>
+
+<div class="scan-area">
+  <div id="reader"></div>
+  <div class="scan-frame"></div>
+  <div class="scan-hint" id="scan-hint">QRコードを枠内にかざしてください</div>
+  <div id="cam-start-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:5;">
+    <button id="cam-start-btn" style="font-size:17px; font-weight:700; color:#fff; background:#1d4e89; border:none; border-radius:12px; padding:16px 28px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.3);">📷 カメラを開始する</button>
+    <p style="color:#fff; font-size:13px; margin-top:14px; opacity:.9;">タップするとスキャンを始めます</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div id="empty" class="empty">
+    <div class="ic">📷</div>
+    <p>商品のQRコードをスキャンしてください</p>
+    <p style="font-size:12px; color:var(--text3);">読み取ると、入庫・出庫の操作画面が表示されます</p>
+  </div>
+  <div id="detail" style="display:none;"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+(function(){
+  // ===== 設定 =====
+  // ↓↓↓ GASのウェブアプリURLをここに貼り付けてください ↓↓↓
+  var GAS_URL = 'https://script.google.com/macros/s/AKfycbxO3SfcTHohyt-fZdh_AaffbiwJKayb-9spe8gH9sKcqpq3fCD_liIDYxIpdvidsJop/exec';
+  // ↑↑↑ 例: https://script.google.com/macros/s/AKfy.../exec ↑↑↑
+
+  var items = [];
+  var cats = [];
+  var scanner = null;
+  var currentItem = null;
+  var operation = null;  // 'in' or 'out'
+  var pushing = false;
+  var pushAgain = false;
+  var lastScannedId = '';
+  var lastScannedAt = 0;
+  var processing = false;
+  var qtyStr = '1';      // テンキーで作る数量の文字列
+  var qtyFresh = true;   // 数字キーで上書きするか（true=次の数字で上書き）
+  var presetFromQR = false; // QRから数量が来たか（表示用）
+
+  // ===== 接続状態 =====
+  function setStatus(state, text){
+    var el = document.getElementById('status');
+    var tx = document.getElementById('status-text');
+    el.className = 'status ' + (state || '');
+    tx.textContent = text;
+  }
+
+  // ===== 起動時：データ読み込み =====
+  function loadData(){
+    setStatus('', '読み込み中…');
+    fetch(GAS_URL + '?action=load')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data && data.ok){
+          items = data.items || [];
+          cats = data.cats || [];
+          setStatus('ok', '接続OK ・ ' + items.length + '品目');
+          // カメラはユーザーが「カメラを開始する」ボタンを押してから起動する
+          // （iOSのSafariは、タップ操作の直後でないとカメラを許可しないため）
+        } else {
+          setStatus('err', 'データ取得失敗');
+        }
+      })
+      .catch(function(err){
+        setStatus('err', '接続できません');
+      });
+  }
+
+  // ===== カメラ起動 =====
+  function startScanner(){
+    if(scanner) return;
+    // ライブラリ(Html5Qrcode)の読み込み完了を待ってから起動する
+    waitForLib(function(ok){
+      if(!ok){
+        showCamError({ name:'LibraryError', message:'QR読み取りライブラリを読み込めませんでした（ネット接続をご確認ください）' });
+        return;
+      }
+      try{
+        scanner = new Html5Qrcode('reader', { verbose:false });
+        scanner.start(
+          { facingMode: 'environment' },
+          { fps:10, qrbox:{ width:240, height:240 }, aspectRatio:1 },
+          onScan,
+          function(){} // エラーは無視
+        ).then(function(){
+          // 起動できたら「カメラを開始する」ボタンを隠す
+          var ov = document.getElementById('cam-start-overlay');
+          if(ov) ov.style.display = 'none';
+        }).catch(function(err){
+          showCamError(err);
+        });
+      }catch(e){
+        showCamError(e);
+      }
+    });
+  }
+
+  // ===== ライブラリ読み込み待ち（最大10秒）=====
+  function waitForLib(cb){
+    var waited = 0;
+    var timer = setInterval(function(){
+      if(typeof Html5Qrcode !== 'undefined'){
+        clearInterval(timer);
+        cb(true);
+      } else if(window.__qrLibFailed || waited >= 10000){
+        clearInterval(timer);
+        cb(false);
+      }
+      waited += 200;
+    }, 200);
+  }
+
+  // ===== カメラエラーの詳細を画面に表示（診断用）=====
+  function showCamError(err){
+    var name = (err && err.name) ? err.name : '';
+    var msg  = (err && err.message) ? err.message : String(err);
+    scanner = null; // 失敗したら作り直せるようにリセット
+    setStatus('err', 'カメラを起動できません');
+    var hint = document.getElementById('scan-hint');
+    if(hint) hint.textContent = 'カメラのアクセスを許可してください';
+
+    // 開始ボタンを再表示して、もう一度押せるようにする
+    var ov = document.getElementById('cam-start-overlay');
+    if(ov){
+      ov.style.display = 'flex';
+      var btn = document.getElementById('cam-start-btn');
+      if(btn) btn.textContent = '📷 もう一度カメラを開始';
+    }
+
+    var box = document.getElementById('detail');
+    var empty = document.getElementById('empty');
+    if(empty) empty.style.display = 'none';
+    if(box){
+      box.style.display = 'block';
+      box.innerHTML =
+        '<div class="err-box" style="white-space:pre-wrap; line-height:1.7;">'
+        + '<b>カメラ起動エラーの詳細</b>\n\n'
+        + '種類: ' + (name || '(不明)') + '\n'
+        + '内容: ' + (msg  || '(不明)') + '\n\n'
+        + 'secure(https): ' + (window.isSecureContext ? 'OK' : 'NG') + '\n'
+        + 'mediaDevices: ' + (navigator.mediaDevices ? 'あり' : 'なし') + '\n'
+        + 'getUserMedia: ' + ((navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? 'あり' : 'なし')
+        + '</div>'
+        + '<button class="next-btn" onclick="location.reload()">🔄 もう一度ためす</button>';
+    }
+  }
+
+  // ===== スキャン成功時 =====
+  function onScan(text){
+    var now = Date.now();
+    // 同じQRの連続読みは1.5秒間無視
+    if(text === lastScannedId && now - lastScannedAt < 1500) return;
+    lastScannedId = text;
+    lastScannedAt = now;
+
+    // 「商品名.数字」形式を解析
+    // 末尾のドットの右側が数字のときだけ数量として扱う（商品名にドットが含まれていても安全）
+    var name = text;
+    var presetQty = null;
+    var lastDot = text.lastIndexOf('.');
+    if(lastDot > 0){
+      var tail = text.substring(lastDot + 1);
+      if(/^\d+$/.test(tail)){
+        name = text.substring(0, lastDot);
+        presetQty = parseInt(tail, 10);
+      }
+    }
+
+    var it = items.find(function(x){ return String(x.name) === String(name); });
+    if(!it){
+      showDetailError(text);
+      return;
+    }
+    currentItem = it;
+    operation = null;
+    if(presetQty && presetQty > 0){
+      qtyStr = String(presetQty);
+      qtyFresh = false;          // 次のキーで上書きしない（追記モード）
+      presetFromQR = true;
+    } else {
+      qtyStr = '1';
+      qtyFresh = true;           // 数字キーで上書き
+      presetFromQR = false;
+    }
+    renderDetail();
+
+    if(navigator.vibrate) navigator.vibrate(40);
+  }
+
+  // ===== 商品が見つからない時 =====
+  function showDetailError(text){
+    document.getElementById('empty').style.display = 'none';
+    var d = document.getElementById('detail');
+    d.style.display = 'block';
+    d.innerHTML = '<div class="err-box">'+
+      '<strong>商品が見つかりません</strong><br>'+
+      '<span style="font-family:var(--mono); font-size:11px;">読み取った値: ' + esc(text) + '</span><br>'+
+      '<span style="font-size:12px;">在庫管理画面で登録されていないQRコードです。</span>'+
+      '</div>'+
+      '<button class="next-btn" onclick="document.getElementById(\'detail\').style.display=\'none\';document.getElementById(\'empty\').style.display=\'block\';">次のQRをスキャン</button>';
+  }
+
+  // ===== 商品詳細を表示 =====
+  function renderDetail(){
+    document.getElementById('empty').style.display = 'none';
+    var d = document.getElementById('detail');
+    d.style.display = 'block';
+    var it = currentItem;
+    var uncheck = it.qty - it.inspectedQty;
+    var place = it.place ? '　/　保管 ' + esc(it.place) : '';
+    var hint = presetFromQR ? '<span class="preset-hint">QRから自動入力</span>' : '';
+    d.innerHTML = ''+
+      '<div class="card">'+
+        '<p class="eyebrow">スキャン完了</p>'+
+        '<p class="name">' + esc(it.name) + '</p>'+
+        '<p class="meta"><span class="tag">' + esc(it.cat || '未分類') + '</span>' + place + '</p>'+
+        '<div class="stock-row">'+
+          '<div class="stock-box"><div class="n">' + it.qty + '</div><div class="l">在庫数</div></div>'+
+          '<div class="stock-box ok"><div class="n">' + it.inspectedQty + '</div><div class="l">検品済み</div></div>'+
+          '<div class="stock-box un"><div class="n">' + uncheck + '</div><div class="l">未検品</div></div>'+
+        '</div>'+
+        '<p class="op-label">操作を選択</p>'+
+        '<div class="op-tabs">'+
+          '<button class="op-tab in" id="tab-in">＋ 入庫</button>'+
+          '<button class="op-tab out" id="tab-out">− 出庫</button>'+
+        '</div>'+
+        '<p class="op-label">数量' + hint + '</p>'+
+        '<div class="qty-display' + (presetFromQR ? ' preset' : '') + '" id="qty-display">' + qtyStr + '</div>'+
+        '<div class="keypad">'+
+          '<button class="key" data-k="7">7</button>'+
+          '<button class="key" data-k="8">8</button>'+
+          '<button class="key" data-k="9">9</button>'+
+          '<button class="key" data-k="4">4</button>'+
+          '<button class="key" data-k="5">5</button>'+
+          '<button class="key" data-k="6">6</button>'+
+          '<button class="key" data-k="1">1</button>'+
+          '<button class="key" data-k="2">2</button>'+
+          '<button class="key" data-k="3">3</button>'+
+          '<button class="key act" data-k="C">C</button>'+
+          '<button class="key" data-k="0">0</button>'+
+          '<button class="key act" data-k="back">⌫</button>'+
+        '</div>'+
+        '<button class="submit" id="submit" disabled>操作を選んでください</button>'+
+        '<button class="next-btn" id="next">次のQRをスキャン</button>'+
+      '</div>';
+
+    document.getElementById('tab-in').onclick = function(){ selectOp('in'); };
+    document.getElementById('tab-out').onclick = function(){ selectOp('out'); };
+    var keys = d.querySelectorAll('.key');
+    for(var i=0; i<keys.length; i++){
+      (function(b){ b.onclick = function(){ handleKey(b.getAttribute('data-k')); }; })(keys[i]);
+    }
+    document.getElementById('submit').onclick = doSubmit;
+    document.getElementById('next').onclick = backToScan;
+  }
+
+  // ===== テンキー処理 =====
+  function handleKey(k){
+    if(k === 'C'){
+      qtyStr = '0';
+      qtyFresh = true;
+      presetFromQR = false;
+    } else if(k === 'back'){
+      presetFromQR = false;
+      if(qtyStr.length <= 1){ qtyStr = '0'; qtyFresh = true; }
+      else { qtyStr = qtyStr.slice(0, -1); }
+    } else {
+      // 数字キー
+      if(qtyFresh){
+        qtyStr = k;
+        qtyFresh = false;
+      } else {
+        if(qtyStr === '0') qtyStr = k;
+        else if(qtyStr.length < 6) qtyStr += k;
+      }
+      presetFromQR = false;
+    }
+    var el = document.getElementById('qty-display');
+    if(el){
+      el.textContent = qtyStr;
+      el.classList.toggle('preset', presetFromQR);
+    }
+    // ヒント表示も消す（テンキーを触ったら自動入力ラベルは消える）
+    if(!presetFromQR){
+      var hint = document.querySelector('.preset-hint');
+      if(hint) hint.style.display = 'none';
+    }
+  }
+
+  function selectOp(op){
+    operation = op;
+    document.getElementById('tab-in').classList.toggle('active', op==='in');
+    document.getElementById('tab-out').classList.toggle('active', op==='out');
+    var btn = document.getElementById('submit');
+    btn.disabled = false;
+    btn.className = 'submit ' + op;
+    btn.textContent = op==='in' ? '✓ 入庫を記録する' : '✓ 出庫を記録する';
+  }
+
+  function backToScan(){
+    currentItem = null; operation = null;
+    qtyStr = '1'; qtyFresh = true; presetFromQR = false;
+    document.getElementById('detail').style.display = 'none';
+    document.getElementById('empty').style.display = 'block';
+  }
+
+  // ===== 入庫・出庫を実行してサーバーに送信 =====
+  function doSubmit(){
+    if(processing) return;
+    if(!currentItem || !operation) return;
+    var qty = parseInt(qtyStr, 10) || 0;
+    if(qty <= 0){ toast('数量を入力してください', 'err'); return; }
+
+    if(operation === 'out'){
+      if(qty > currentItem.qty){
+        toast('在庫が足りません（在庫 ' + currentItem.qty + '）', 'err');
+        return;
+      }
+    }
+
+    processing = true;
+    var btn = document.getElementById('submit');
+    btn.disabled = true;
+    btn.textContent = '保存中…';
+
+    // ローカルでデータ更新
+    var it = currentItem;
+    if(operation === 'in'){
+      it.qty += qty;
+      addLog(it, 'in', qty);
+    } else {
+      it.qty -= qty;
+      if(it.inspectedQty > it.qty) it.inspectedQty = it.qty;
+      addLog(it, 'out', qty);
+    }
+
+    // サーバーに保存
+    pushToServer(function(ok){
+      processing = false;
+      if(ok){
+        toast((operation==='in'?'入庫':'出庫') + ' ' + qty + ' 件を記録しました', 'ok');
+        setTimeout(backToScan, 800);
+      } else {
+        // 失敗したらロールバック
+        if(operation === 'in'){ it.qty -= qty; }
+        else { it.qty += qty; }
+        it.logs.shift();
+        toast('保存できませんでした。もう一度お試しください', 'err');
+        btn.disabled = false;
+        btn.textContent = operation==='in' ? '✓ 入庫を記録する' : '✓ 出庫を記録する';
+      }
+    });
+  }
+
+  function addLog(it, type, n){
+    if(!Array.isArray(it.logs)) it.logs = [];
+    it.logs.unshift({ id:newId(), t:nowStr(), type:type, n:n, adj:false });
+    if(it.logs.length > 100) it.logs = it.logs.slice(0, 100);
+  }
+
+  function pushToServer(cb){
+    setStatus('saving', '保存中…');
+    var payload = JSON.stringify({ action:'save', items:items, cats:cats });
+    fetch(GAS_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: payload
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data && data.ok){
+          setStatus('ok', '接続OK ・ ' + items.length + '品目');
+          cb(true);
+        } else {
+          setStatus('err', '保存失敗');
+          cb(false);
+        }
+      })
+      .catch(function(){
+        setStatus('err', '保存失敗');
+        cb(false);
+      });
+  }
+
+  // ===== 補助 =====
+  function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function newId(){ return String(Date.now()) + Math.floor(Math.random()*1000); }
+  function nowStr(){
+    var d=new Date(), p=function(n){return ('0'+n).slice(-2);};
+    return p(d.getMonth()+1)+'/'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  function toast(msg, kind){
+    var t = document.getElementById('toast');
+    t.className = 'toast show ' + (kind||'');
+    t.textContent = msg;
+    setTimeout(function(){ t.classList.remove('show'); }, 2000);
+  }
+
+  // 「カメラを開始する」ボタンのタップでカメラ起動
+  // （iOSのSafariは、ユーザーのタップ直後でないとカメラを許可しないため、この方式にしている）
+  var camBtn = document.getElementById('cam-start-btn');
+  if(camBtn){
+    camBtn.addEventListener('click', function(){
+      setStatus('', 'カメラ起動中…');
+      startScanner();
+    });
+  }
+
+  // 起動
+  loadData();
+})();
+</script>
+</body>
+</html>
