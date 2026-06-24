@@ -257,18 +257,32 @@
     lastScannedId = text;
     lastScannedAt = now;
 
-    // 「商品名,数字」形式を解析
-    // 末尾のカンマの右側が数字のときだけ数量として扱う（商品名にカンマが含まれていても安全）
+    // QRの内容を解析する
+    // 対応する形式（カンマ区切り）:
+    //   商品名,入庫,数字 → 入庫を選択＋数量を入力
+    //   商品名,出庫,数字 → 出庫を選択＋数量を入力
+    //   商品名,入庫       → 入庫を選択（数量は手入力）
+    //   商品名,出庫       → 出庫を選択（数量は手入力）
+    //   商品名,数字       → 数量を入力（操作は未選択）
+    //   商品名            → そのまま
+    // ※商品名にカンマが含まれていても安全なように、後ろから順に判定する
     var name = text;
-    var presetQty = null;
-    var lastComma = text.lastIndexOf(',');
-    if(lastComma > 0){
-      var tail = text.substring(lastComma + 1);
-      if(/^\d+$/.test(tail)){
-        name = text.substring(0, lastComma);
-        presetQty = parseInt(tail, 10);
-      }
+    var presetQty = null;   // QRから読み取った数量
+    var presetOp = null;    // QRから読み取った操作（'in' / 'out'）
+    var parts = text.split(',');
+
+    // 末尾が数字なら数量として取り出す
+    if(parts.length >= 2 && /^\d+$/.test(parts[parts.length - 1].trim())){
+      presetQty = parseInt(parts.pop().trim(), 10);
     }
+    // （数量を外した）末尾が「入庫」「出庫」なら操作として取り出す
+    if(parts.length >= 2){
+      var opWord = parts[parts.length - 1].trim();
+      if(opWord === '入庫'){ presetOp = 'in';  parts.pop(); }
+      else if(opWord === '出庫'){ presetOp = 'out'; parts.pop(); }
+    }
+    // 残りを商品名として再結合（商品名にカンマがあっても元に戻る）
+    name = parts.join(',');
 
     var it = items.find(function(x){ return String(x.name) === String(name); });
     if(!it){
@@ -287,6 +301,11 @@
       presetFromQR = false;
     }
     renderDetail();
+
+    // QRで操作（入庫/出庫）が指定されていれば、選択した状態にする
+    if(presetOp){
+      selectOp(presetOp);
+    }
 
     if(navigator.vibrate) navigator.vibrate(40);
   }
