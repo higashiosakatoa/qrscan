@@ -485,23 +485,13 @@
 
     var it = currentItem;
 
-    // 操作ごとの上限チェック
-    if(operation === 'out'){
-      if(qty > it.qty){
-        toast('在庫が足りません（在庫 ' + it.qty + '）', 'err');
-        return;
-      }
-    } else if(operation === 'insp'){
-      var canInsp = it.qty - it.inspectedQty;
-      if(qty > canInsp){
-        toast('未検品が足りません（未検品 ' + canInsp + '）', 'err');
-        return;
-      }
-    } else if(operation === 'uninsp'){
-      if(qty > it.inspectedQty){
-        toast('検品済みが足りません（検品済み ' + it.inspectedQty + '）', 'err');
-        return;
-      }
+    // 手元の値での簡易チェック（最終判定はサーバーが行う）
+    if(operation === 'out' && qty > it.qty){
+      toast('在庫が足りません（在庫 ' + it.qty + '）', 'err'); return;
+    } else if(operation === 'insp' && qty > (it.qty - it.inspectedQty)){
+      toast('未検品が足りません（未検品 ' + (it.qty - it.inspectedQty) + '）', 'err'); return;
+    } else if(operation === 'uninsp' && qty > it.inspectedQty){
+      toast('検品済みが足りません（検品済み ' + it.inspectedQty + '）', 'err'); return;
     }
 
     processing = true;
@@ -509,46 +499,49 @@
     btn.disabled = true;
     btn.textContent = '保存中…';
 
-    // ローカルでデータ更新
-    var prevInspected = it.inspectedQty;   // 失敗時の復元用
-    if(operation === 'in'){
-      it.qty += qty;
-      addLog(it, 'in', qty);
-    } else if(operation === 'out'){
-      it.qty -= qty;
-      it.inspectedQty = Math.max(0, it.inspectedQty - qty);
-      addLog(it, 'out', qty);
-    } else if(operation === 'insp'){
-      it.inspectedQty += qty;
-      addLog(it, 'insp', qty);
-    } else if(operation === 'uninsp'){
-      it.inspectedQty -= qty;
-      addLog(it, 'uninsp', qty);
-    }
-
     var opLabels = { 'in':'入庫', 'out':'出庫', 'insp':'検品完了', 'uninsp':'未検品戻し' };
     var opName = opLabels[operation] || '';
     var opForBtn = operation;
 
-    // サーバーに保存
-    pushToServer(function(ok){
-      processing = false;
-      if(ok){
-        toast(opName + ' ' + qty + ' 件を記録しました', 'ok');
-        setTimeout(backToScan, 800);
-      } else {
-        // 失敗したらロールバック
-        if(opForBtn === 'in'){ it.qty -= qty; }
-        else if(opForBtn === 'out'){ it.qty += qty; it.inspectedQty = prevInspected; }
-        else if(opForBtn === 'insp'){ it.inspectedQty -= qty; }
-        else if(opForBtn === 'uninsp'){ it.inspectedQty += qty; }
-        it.logs.shift();
-        toast('保存できませんでした。もう一度お試しください', 'err');
+    // 操作1件だけをサーバーへ送る（サーバーが最新値に足し引きする）
+    var op = { itemId: it.id, type: operation, n: qty, t: nowStr(), logId: newId(), adj: false };
+    var payload = JSON.stringify({ action:'applyDelta', op: op });
+
+    fetch(GAS_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: payload
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        processing = false;
+        if(data && data.ok){
+          // サーバー確定値で手元を更新
+          it.qty = data.qty;
+          it.inspectedQty = data.inspectedQty;
+          toast(opName + ' ' + qty + ' 件を記録しました', 'ok');
+          setTimeout(backToScan, 800);
+        } else {
+          if(data && typeof data.qty === 'number'){ it.qty = data.qty; }
+          if(data && typeof data.inspectedQty === 'number'){ it.inspectedQty = data.inspectedQty; }
+          var msg = '保存できませんでした。もう一度お試しください';
+          if(data && data.error === 'out_over')    msg = '在庫が足りません（最新の在庫 ' + it.qty + '）';
+          if(data && data.error === 'insp_over')   msg = '未検品が足りません';
+          if(data && data.error === 'uninsp_over') msg = '検品済みが足りません';
+          if(data && data.error === 'item not found') msg = '商品が見つかりません';
+          toast(msg, 'err');
+          btn.disabled = false;
+          var rb = { 'in':'✓ 入庫を記録する','out':'✓ 出庫を記録する','insp':'✓ 検品完了を記録する','uninsp':'✓ 未検品に戻す' };
+          btn.textContent = rb[opForBtn] || '✓ 記録する';
+        }
+      })
+      .catch(function(){
+        processing = false;
+        toast('保存できませんでした。通信を確認してください', 'err');
         btn.disabled = false;
         var rb = { 'in':'✓ 入庫を記録する','out':'✓ 出庫を記録する','insp':'✓ 検品完了を記録する','uninsp':'✓ 未検品に戻す' };
         btn.textContent = rb[opForBtn] || '✓ 記録する';
-      }
-    });
+      });
   }
 
   function addLog(it, type, n){
