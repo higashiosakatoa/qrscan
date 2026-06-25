@@ -101,6 +101,8 @@
   .preset-hint{display:inline-block; font-size:11px; font-weight:600; color:var(--success); background:#e7f3ec; border:1px solid #c3e3cf; padding:1px 8px; border-radius:6px; margin-left:8px; letter-spacing:0;}
 
   .next-btn{width:100%; margin-top:10px; height:44px; border:1px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:14px; font-weight:500; cursor:pointer; font-family:inherit;}
+  .rescan-btn{width:100%; margin-top:10px; height:46px; border:1.5px solid var(--border2); background:#fff; color:var(--text2); border-radius:var(--radius-sm); font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;}
+  .rescan-btn:active{background:#f0f2f5;}
 
   .toast{position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(40px); background:#1b2335; color:#fff; padding:12px 22px; border-radius:999px; font-size:14px; font-weight:500; box-shadow:0 10px 30px rgba(0,0,0,.3); opacity:0; transition:all .3s; pointer-events:none; z-index:99;}
   .toast.show{transform:translateX(-50%) translateY(0); opacity:1;}
@@ -138,7 +140,7 @@
 (function(){
   // ===== 設定 =====
   // ↓↓↓ GASのウェブアプリURLをここに貼り付けてください ↓↓↓
-  var GAS_URL = 'https://script.google.com/macros/s/AKfycbxO3SfcTHohyt-fZdh_AaffbiwJKayb-9spe8gH9sKcqpq3fCD_liIDYxIpdvidsJop/exec';
+  var GAS_URL = 'ここにGASのURLを貼り付け';
   // ↑↑↑ 例: https://script.google.com/macros/s/AKfy.../exec ↑↑↑
 
   var items = [];
@@ -151,7 +153,7 @@
   var lastScannedId = '';
   var lastScannedAt = 0;
   var processing = false;
-  var qtyStr = '1';      // テンキーで作る数量の文字列
+  var qtyStr = '0';      // テンキーで作る数量の文字列
   var qtyFresh = true;   // 数字キーで上書きするか（true=次の数字で上書き）
   var presetFromQR = false; // QRから数量が来たか（表示用）
 
@@ -297,11 +299,15 @@
       qtyFresh = false;          // 次のキーで上書きしない（追記モード）
       presetFromQR = true;
     } else {
-      qtyStr = '1';
+      qtyStr = '0';              // 数量情報がないQRは0からスタート
       qtyFresh = true;           // 数字キーで上書き
       presetFromQR = false;
     }
     renderDetail();
+
+    // 詳細画面（テンキー）表示中は、カメラの読み取りだけを一時停止する。
+    // ※カメラの映像・許可はそのまま。誤って別のQRを拾う事故を防ぐ。
+    try{ if(scanner && scanner.pause) scanner.pause(true); }catch(e){}
 
     // QRで操作（入庫/出庫）が指定されていれば、選択した状態にする
     if(presetOp){
@@ -369,6 +375,7 @@
           '<button class="key act" data-k="back">⌫</button>'+
         '</div>'+
         '<button class="submit" id="submit" disabled>操作を選んでください</button>'+
+        '<button class="rescan-btn" id="rescan">↩ 読み取り直し（別のQRを読む）</button>'+
       '</div>';
 
     document.getElementById('tab-in').onclick = function(){ selectOp('in'); };
@@ -394,6 +401,7 @@
       })(keys[i]);
     }
     document.getElementById('submit').onclick = doSubmit;
+    document.getElementById('rescan').onclick = function(){ backToScan(); };
 
     // テンキー全体が見えるよう、ページ最下部まで自動でスクロール
     // 描画が確定してから動かすため少し待つ
@@ -465,7 +473,7 @@
 
   function backToScan(){
     currentItem = null; operation = null;
-    qtyStr = '1'; qtyFresh = true; presetFromQR = false;
+    qtyStr = '0'; qtyFresh = true; presetFromQR = false;
     document.getElementById('detail').style.display = 'none';
     document.getElementById('empty').style.display = 'block';
     // すぐ次のQRを読み取れるよう、ページ最上部に自動で移動する
@@ -474,6 +482,13 @@
     }catch(e){
       window.scrollTo(0, 0);
     }
+    // 直前の読み取り記録をリセット（戻った直後に同じQRをすぐ読めるように）
+    lastScannedId = '';
+    lastScannedAt = 0;
+    // カメラの読み取りを再開する。戻った瞬間に画面内のQRを即読みしないよう少し待つ
+    setTimeout(function(){
+      try{ if(scanner && scanner.resume) scanner.resume(); }catch(e){}
+    }, 600);
   }
 
   // ===== 入庫・出庫を実行してサーバーに送信 =====
