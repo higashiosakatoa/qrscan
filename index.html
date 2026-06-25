@@ -368,7 +368,6 @@
           '<button class="key act" data-k="back">⌫</button>'+
         '</div>'+
         '<button class="submit" id="submit" disabled>操作を選んでください</button>'+
-        '<button class="next-btn" id="next">次のQRをスキャン</button>'+
       '</div>';
 
     document.getElementById('tab-in').onclick = function(){ selectOp('in'); };
@@ -380,7 +379,6 @@
       (function(b){ b.onclick = function(){ handleKey(b.getAttribute('data-k')); }; })(keys[i]);
     }
     document.getElementById('submit').onclick = doSubmit;
-    document.getElementById('next').onclick = backToScan;
 
     // テンキー全体が見えるよう、ページ最下部まで自動でスクロール
     // 描画が確定してから動かすため少し待つ
@@ -455,6 +453,12 @@
     qtyStr = '1'; qtyFresh = true; presetFromQR = false;
     document.getElementById('detail').style.display = 'none';
     document.getElementById('empty').style.display = 'block';
+    // すぐ次のQRを読み取れるよう、ページ最上部に自動で移動する
+    try{
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }catch(e){
+      window.scrollTo(0, 0);
+    }
   }
 
   // ===== 入庫・出庫を実行してサーバーに送信 =====
