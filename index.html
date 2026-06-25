@@ -101,7 +101,7 @@
   .preset-hint{display:inline-block; font-size:11px; font-weight:600; color:var(--success); background:#e7f3ec; border:1px solid #c3e3cf; padding:1px 8px; border-radius:6px; margin-left:8px; letter-spacing:0;}
 
   .next-btn{width:100%; margin-top:10px; height:44px; border:1px solid var(--border2); background:#fff; color:var(--text); border-radius:var(--radius-sm); font-size:14px; font-weight:500; cursor:pointer; font-family:inherit;}
-  .rescan-btn{width:100%; margin-top:10px; height:46px; border:1.5px solid var(--border2); background:#fff; color:var(--text2); border-radius:var(--radius-sm); font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;}
+  .rescan-btn{width:100%; margin-top:10px; height:46px; border:1.5px solid var(--border2); background:#fff; color:var(--text2); border-radius:var(--radius-sm); font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; scroll-margin-bottom:14px;}
   .rescan-btn:active{background:#f0f2f5;}
 
   .toast{position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(40px); background:#1b2335; color:#fff; padding:12px 22px; border-radius:999px; font-size:14px; font-weight:500; box-shadow:0 10px 30px rgba(0,0,0,.3); opacity:0; transition:all .3s; pointer-events:none; z-index:99;}
@@ -140,7 +140,7 @@
 (function(){
   // ===== 設定 =====
   // ↓↓↓ GASのウェブアプリURLをここに貼り付けてください ↓↓↓
-  var GAS_URL = 'https://script.google.com/macros/s/AKfycbxO3SfcTHohyt-fZdh_AaffbiwJKayb-9spe8gH9sKcqpq3fCD_liIDYxIpdvidsJop/exec';
+  var GAS_URL = 'ここにGASのURLを貼り付け';
   // ↑↑↑ 例: https://script.google.com/macros/s/AKfy.../exec ↑↑↑
 
   var items = [];
@@ -403,24 +403,21 @@
     document.getElementById('submit').onclick = doSubmit;
     document.getElementById('rescan').onclick = function(){ backToScan(); };
 
-    // テンキーと一番下のボタンまで全部見えるよう、ページ最下部まで自動でスクロール
+    // 「読み取り直し」ボタンが、画面の下にほんの少し余白を残して見える位置で止める。
+    // （以前のように一番下まで送りすぎない。ボタンの下端＋わずかな隙間でピタッと止まる）
     // 描画が確定してから動かすため少し待つ
     setTimeout(function(){
+      var rescan = document.getElementById('rescan') || document.getElementById('submit');
       try{
-        // 一番下にある「読み取り直し」ボタンを基準にする
-        var target = document.getElementById('rescan') || document.getElementById('submit');
-        if(target && target.scrollIntoView){
-          target.scrollIntoView({ behavior:'smooth', block:'end' });
+        if(rescan && rescan.scrollIntoView){
+          // block:'end' で「ボタンの下端」を画面の下に合わせる。
+          // CSSの scroll-margin-bottom:14px のぶんだけ下に余白が残る。
+          rescan.scrollIntoView({ behavior:'smooth', block:'end' });
         } else {
           window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
         }
-        // 一番下のボタンの余白まで確実に見えるよう、少し後にもう一度最下部へ
-        setTimeout(function(){
-          try{ window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' }); }
-          catch(e){ window.scrollTo(0, document.body.scrollHeight); }
-        }, 350);
       }catch(e){
-        window.scrollTo(0, document.body.scrollHeight);
+        try{ rescan.scrollIntoView(false); }catch(_){}
       }
     }, 250);
   }
