@@ -403,16 +403,22 @@
     document.getElementById('submit').onclick = doSubmit;
     document.getElementById('rescan').onclick = function(){ backToScan(); };
 
-    // テンキー全体が見えるよう、ページ最下部まで自動でスクロール
+    // テンキーと一番下のボタンまで全部見えるよう、ページ最下部まで自動でスクロール
     // 描画が確定してから動かすため少し待つ
     setTimeout(function(){
       try{
-        var sb = document.getElementById('submit');
-        if(sb && sb.scrollIntoView){
-          sb.scrollIntoView({ behavior:'smooth', block:'end' });
+        // 一番下にある「読み取り直し」ボタンを基準にする
+        var target = document.getElementById('rescan') || document.getElementById('submit');
+        if(target && target.scrollIntoView){
+          target.scrollIntoView({ behavior:'smooth', block:'end' });
         } else {
           window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
         }
+        // 一番下のボタンの余白まで確実に見えるよう、少し後にもう一度最下部へ
+        setTimeout(function(){
+          try{ window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' }); }
+          catch(e){ window.scrollTo(0, document.body.scrollHeight); }
+        }, 350);
       }catch(e){
         window.scrollTo(0, document.body.scrollHeight);
       }
