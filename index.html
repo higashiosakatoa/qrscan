@@ -40,7 +40,8 @@
     --font: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono", Consolas, monospace;
   }
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation;}
+  button, .key{-webkit-user-select:none; user-select:none;}
   body{margin:0; background:var(--bg); color:#fff; font-family:var(--font); line-height:1.5; font-variant-numeric:tabular-nums;}
   .header{padding:14px 18px; display:flex; align-items:center; gap:12px;}
   .header .ttl{flex:1; font-size:15px; font-weight:600; letter-spacing:.01em;}
@@ -376,7 +377,21 @@
     document.getElementById('tab-uninsp').onclick = function(){ selectOp('uninsp'); };
     var keys = d.querySelectorAll('.key');
     for(var i=0; i<keys.length; i++){
-      (function(b){ b.onclick = function(){ handleKey(b.getAttribute('data-k')); }; })(keys[i]);
+      (function(b){
+        var k = b.getAttribute('data-k');
+        var touched = false;   // タッチで処理したらclickは無視（二重入力防止）
+        // 指で触れた瞬間に入力（素早い連打でも拡大せず即反応）
+        b.addEventListener('touchstart', function(ev){
+          touched = true;
+          ev.preventDefault();   // ダブルタップ拡大・長押し選択を止める
+          handleKey(k);
+        }, { passive: false });
+        // マウス操作（PC）用。タッチ済みなら何もしない
+        b.addEventListener('click', function(){
+          if(touched){ touched = false; return; }
+          handleKey(k);
+        });
+      })(keys[i]);
     }
     document.getElementById('submit').onclick = doSubmit;
 
